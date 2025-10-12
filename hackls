@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Fake Terminal — Animated</title>
+  <title>Fake Terminal — Fullscreen</title>
   <style>
     :root{
       --bg:#0b0f14;
@@ -12,21 +12,24 @@
       --muted:#94a3b8;
       --accent:#7dd3fc;
     }
-    html,body{height:100%;margin:0;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;background:linear-gradient(180deg,#071018 0%,#041018 100%);color:var(--muted)}
-    .wrap{display:flex;align-items:center;justify-content:center;height:100%;padding:24px;box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;background:var(--bg);color:var(--muted);overflow:hidden}
+    /* make terminal occupy full viewport immediately */
+    .wrap{display:flex;align-items:center;justify-content:center;height:100vh;padding:0;box-sizing:border-box}
     .term {
-      width: min(1100px, 96%);
-      height: 620px;
+      position:relative;
+      width:100vw;
+      height:100vh;
       background: linear-gradient(180deg, rgba(8,12,18,1), rgba(6,9,14,1));
-      border-radius: 10px;
-      box-shadow: 0 10px 40px rgba(2,6,12,0.7);
+      border-radius: 0;
+      box-shadow: none;
       overflow:hidden;
       display:flex;
       flex-direction:column;
-      border:1px solid rgba(255,255,255,0.03);
+      border:0;
     }
     .term-header{
       height:40px; display:flex; align-items:center; gap:12px; padding:8px 12px; background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+      z-index:5;
     }
     .dots{display:flex; gap:8px}
     .dot{width:12px;height:12px;border-radius:50%}
@@ -34,7 +37,7 @@
     .dot.yellow{background:#ffd166}
     .dot.green{background:#2ecc71}
     .title{margin-left:auto;color:var(--muted);font-size:13px}
-    .screen{flex:1;padding:14px 18px; overflow:auto; color:var(--green); font-size:14px; line-height:1.45; white-space:pre-wrap}
+    .screen{flex:1;padding:14px 18px; overflow:auto; color:var(--green); font-size:15px; line-height:1.45; white-space:pre-wrap}
     .controls{display:flex; gap:8px; padding:12px; align-items:center; background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent)}
     button, select, input[type="range"]{background:transparent;border:1px solid rgba(255,255,255,0.06); color:var(--muted); padding:8px 10px; border-radius:6px; cursor:pointer}
     button.primary{border-color:rgba(125,211,252,0.2); color:var(--accent)}
@@ -42,15 +45,49 @@
     .muted{color:var(--muted); font-size:13px}
     .cursor { display:inline-block; width:8px; background:var(--green); margin-left:4px; vertical-align:middle; animation:blink 1s steps(2) infinite;}
     @keyframes blink{50% {opacity:0}}
-    /* glow for certain lines */
     .glow { color: #c7f9d6; text-shadow:0 0 8px rgba(142,242,154,0.15) }
     .error { color:#ff8b8b; text-shadow:0 0 6px rgba(255,139,139,0.12) }
     .info { color:var(--accent) }
     .muted-line { color: #7b8892 }
-    /* make scroll bar slim */
     .screen::-webkit-scrollbar{width:8px;height:8px}
     .screen::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.04);border-radius:10px}
-    .settings { margin-left:8px; display:flex; gap:8px; align-items:center }
+    /* overlay shown only if automatic fullscreen was blocked */
+    #fullscreenHint {
+      position:fixed;
+      right:18px;
+      bottom:18px;
+      background:rgba(0,0,0,0.6);
+      border:1px solid rgba(255,255,255,0.06);
+      padding:10px 12px;
+      border-radius:8px;
+      color:var(--muted);
+      font-size:13px;
+      backdrop-filter: blur(4px);
+      display:none;
+      z-index:9999;
+    }
+    #fullscreenHint button {
+      margin-left:8px; padding:6px 10px;
+      border-radius:6px;
+      background:transparent;
+      color:var(--accent);
+      border:1px solid rgba(125,211,252,0.12);
+      cursor:pointer;
+    }
+    /* allow a big "panic / exit fullscreen" button when in fullscreen */
+    #panicBtn {
+      position:fixed;
+      left:18px;
+      bottom:18px;
+      z-index:9999;
+      display:none;
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.06);
+      padding:8px 10px;
+      border-radius:8px;
+      color:var(--muted);
+      cursor:pointer;
+    }
   </style>
 </head>
 <body>
@@ -62,17 +99,17 @@
           <div class="dot yellow"></div>
           <div class="dot green"></div>
         </div>
-        <div class="title">user@host — fake-terminal</div>
+        <div class="title">user@host — fake-terminal (fullscreen)</div>
       </div>
 
       <div id="screen" class="screen" aria-live="polite" tabindex="0"></div>
 
-      <div class="controls">
+      <div class="controls" id="controlsRow">
         <button id="openBtn" class="primary">Open Terminal</button>
         <button id="pauseBtn" class="small">Pause</button>
         <button id="clearBtn" class="small">Clear</button>
 
-        <div class="settings">
+        <div style="margin-left:12px; display:flex; gap:8px; align-items:center">
           <label class="muted">Speed</label>
           <input id="speed" type="range" min="10" max="150" value="60" />
           <label class="muted">Intensity</label>
@@ -84,16 +121,25 @@
           </select>
         </div>
 
-        <div style="margin-left:auto" class="muted">Tip: Click the terminal to focus and press Pause</div>
+        <div style="margin-left:auto" class="muted">Tip: Click the terminal and press Space to pause.</div>
       </div>
     </div>
   </div>
 
+  <div id="fullscreenHint" role="dialog" aria-live="polite">
+    For true fullscreen, click "Enter Fullscreen" or press <kbd>F11</kbd>.
+    <button id="enterFsBtn">Enter Fullscreen</button>
+    <button id="dismissFs">Dismiss</button>
+  </div>
+
+  <button id="panicBtn" title="Exit Fullscreen (panic)">Exit Fullscreen</button>
+
   <script>
-    /* Fake terminal generator
-       - Creates random-looking code, hex, base64, stack traces, "sudo" prompts, fake errors.
-       - Types char-by-char and auto-scrolls.
-       - Safe: purely visual, no system calls.
+    /* Fullscreen-enabled fake terminal
+       - Terminal is full-viewport by default.
+       - Tries to request real fullscreen on load (may be blocked).
+       - If blocked, shows a small hint with a button to enter fullscreen (user gesture required).
+       - Auto-starts typing for instant effect.
     */
 
     const screen = document.getElementById('screen');
@@ -102,15 +148,18 @@
     const clearBtn = document.getElementById('clearBtn');
     const speedInput = document.getElementById('speed');
     const intensitySelect = document.getElementById('intensity');
+    const fullscreenHint = document.getElementById('fullscreenHint');
+    const enterFsBtn = document.getElementById('enterFsBtn');
+    const dismissFs = document.getElementById('dismissFs');
+    const panicBtn = document.getElementById('panicBtn');
 
     let typing = false;
     let paused = false;
     let queue = [];
     let currentLine = '';
-    let cursorVisible = true;
     let typeTimer = null;
 
-    // Templates for different fake outputs
+    // Templates for fake outputs
     const templates = {
       js: [
         "function initKernel() {",
@@ -159,7 +208,7 @@
       ]
     };
 
-    // Helper functions
+    // Helpers
     function randInt(a, b) { return Math.floor(Math.random()*(b-a+1)) + a; }
     function randomHex(len){
       const chars = "0123456789abcdef";
@@ -174,7 +223,6 @@
     }
 
     function generateLine(intensity = 'med') {
-      // Based on intensity, choose patterns and length
       const options = [];
       if (Math.random() < 0.6) options.push('js');
       if (Math.random() < 0.5) options.push('bash');
@@ -185,7 +233,6 @@
       if (Math.random() < 0.15) options.push('error');
       if (Math.random() < 0.12) options.push('json');
 
-      // intensity tweaks
       if (intensity === 'low') options.splice(0, Math.floor(options.length/3));
       if (intensity === 'high') options.push('hex','base64');
       if (intensity === 'spam') options.push('hex','hex','base64','js');
@@ -199,7 +246,6 @@
         chunks.push(pick(t));
       }
 
-      // randomly wrap code blocks or comments
       let line = chunks.join('  |  ');
       if (Math.random() < 0.12) line = "// " + line;
       if (Math.random() < 0.09) line = "/* " + line + " */";
@@ -207,13 +253,9 @@
       return line;
     }
 
-    // Queue system: lines are queued, then typed char-by-char
     function enqueueLines(n = 6) {
       const intensity = intensitySelect.value;
-      for (let i=0;i<n;i++) {
-        const line = generateLine(intensity);
-        queue.push(line);
-      }
+      for (let i = 0; i < n; i++) queue.push(generateLine(intensity));
     }
 
     function startTyping() {
@@ -231,12 +273,10 @@
       if (!currentLine && queue.length === 0) enqueueLines(8);
       if (!currentLine) currentLine = queue.shift() || "";
 
-      const speedVal = parseInt(speedInput.value,10); // lower is faster
-      const basedelay = Math.max(8, 160 - speedVal); // in ms
-      // adjust per-character delay a bit
+      const speedVal = parseInt(speedInput.value,10);
+      const basedelay = Math.max(8, 160 - speedVal);
       const charDelay = basedelay + randInt(-20, 40);
 
-      // type one char
       const nextChar = currentLine.slice(0,1);
       if (nextChar) {
         appendToScreen(escapeHtml(nextChar), false);
@@ -244,13 +284,9 @@
         autoScroll();
         typeTimer = setTimeout(tick, charDelay);
       } else {
-        // finish line: maybe add newline & occasional fake prompt
-        appendToScreen('\\n', true);
-        // small pause between lines
+        appendToScreen('\n', true);
         const pauseAfter = randInt(20, 120);
-        // occasionally inject a multi-line stack or pause for effect
         if (Math.random() < 0.07) {
-          // inject an error block
           appendToScreen(escapeHtml("\n" + pick('error') + "\n"), true, 'error');
         } else if (Math.random() < 0.08) {
           appendToScreen(escapeHtml("\n" + pick('stack') + "\n"), true, 'muted-line');
@@ -262,23 +298,20 @@
     }
 
     function appendToScreen(text, newline=false, cls=null) {
-      // find last element or create new
-      if (text === '\\n') {
+      if (text === '\n') {
         const br = document.createElement('div');
         br.innerHTML = '<span></span>';
         if (cls) br.classList.add(cls);
         screen.appendChild(br);
       } else {
-        // if last child is a div and we are mid-line, append text
         let last = screen.lastElementChild;
         if (!last || last.tagName.toLowerCase() !== 'div') {
           last = document.createElement('div');
           screen.appendChild(last);
         }
-        // when adding regular chars to last, we add span
         const span = document.createElement('span');
         if (cls) span.classList.add(cls);
-        span.innerHTML = text.replace(/\\n/g,'');
+        span.innerHTML = text.replace(/\n/g,'');
         last.appendChild(span);
       }
     }
@@ -319,39 +352,84 @@
       openBtn.disabled = false;
     });
 
-    // allow clicking the screen to start/pause
-    screen.addEventListener('click', () => {
-      if (!typing && !paused) startTyping();
-      else {
-        // toggle pause
-        paused = !paused;
-        if (paused) { pauseBtn.textContent = "Resume"; clearTimeout(typeTimer); typing=false; }
-        else { pauseBtn.textContent = "Pause"; startTyping(); }
-      }
-    });
-
-    // keyboard shortcuts: Space -> pause/resume, C -> clear
+    // keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { e.preventDefault(); pauseBtn.click(); }
       if (e.key.toLowerCase() === 'c' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); clearBtn.click(); }
+      if (e.key === 'F11') {
+        // let browser handle F11; but we also attempt to request fullscreen (may be redundant)
+        attemptFullscreen();
+      }
     });
 
-    // auto-focus for accessibility
+    // Fullscreen handling
+    async function attemptFullscreen() {
+      try {
+        // try on documentElement for most consistent experience
+        if (document.fullscreenElement) return true;
+        await document.documentElement.requestFullscreen();
+        onEnteredFullscreen();
+        return true;
+      } catch (err) {
+        // blocked or not allowed — show hint UI
+        fullscreenHint.style.display = 'block';
+        return false;
+      }
+    }
+
+    function onEnteredFullscreen() {
+      fullscreenHint.style.display = 'none';
+      panicBtn.style.display = 'inline-block';
+    }
+
+    async function exitFullscreen() {
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+      } catch(e){}
+      panicBtn.style.display = 'none';
+    }
+
+    enterFsBtn.addEventListener('click', async () => {
+      // user gesture: try again
+      fullscreenHint.style.display = 'none';
+      const ok = await attemptFullscreen();
+      if (!ok) fullscreenHint.style.display = 'block';
+    });
+    dismissFs.addEventListener('click', () => fullscreenHint.style.display = 'none');
+    panicBtn.addEventListener('click', () => exitFullscreen());
+
+    // Auto-start: make it look instant and try to go fullscreen
     window.addEventListener('load', () => {
+      // instant full-window appearance (CSS already makes it full viewport)
       screen.focus();
-      // show a starting header
-      screen.innerHTML = '';
+      // header lines
       const header = [
         "Fake-Terminal v1.0 — demo output",
         "Booting virtual runtime...",
         "Initializing pseudo-kernel modules...",
         ""
       ];
-      header.forEach(h => appendToScreen(escapeHtml(h + "\\n"), true, 'glow'));
+      header.forEach(h => appendToScreen(escapeHtml(h + "\n"), true, 'glow'));
       enqueueLines(10);
+      startTyping();
+
+      // attempt fullscreen (may fail if browser requires user gesture)
+      // this is intentionally attempted; if blocked, UI shows hint to enter fullscreen.
+      attemptFullscreen().then(ok => {
+        if (!ok) {
+          // if blocked, attach a one-time listener to try again on first user interaction
+          const tryOnInteraction = async () => {
+            await attemptFullscreen();
+            window.removeEventListener('pointerdown', tryOnInteraction);
+            window.removeEventListener('keydown', tryOnInteraction);
+          };
+          window.addEventListener('pointerdown', tryOnInteraction, { once: true });
+          window.addEventListener('keydown', tryOnInteraction, { once: true });
+        }
+      });
     });
 
-    // small helper: generate some base64-like values for template building
+    // helper btoa (safe)
     function btoa(s) {
       try { return window.btoa(unescape(encodeURIComponent(s))); }
       catch(e){ return window.btoa(s); }
